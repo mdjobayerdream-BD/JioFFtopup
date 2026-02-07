@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Phone, Mail, Shield, Zap, Clock, Send, Github } from 'lucide-react';
 import { TELEGRAM_LINK, SUPPORT_PHONE } from '../constants';

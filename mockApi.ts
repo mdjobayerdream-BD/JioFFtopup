@@ -7,14 +7,34 @@ const DEPOSITS_KEY = 'jio_store_deposits';
 const SETTINGS_KEY = 'jio_store_settings';
 const CURRENT_USER_ID_KEY = 'jio_store_current_uid';
 
-// Helper to get data
+// Helper to get data securely with auto-cleanup for bad data
 const getStorage = <T>(key: string, defaultVal: T): T => {
-  const data = localStorage.getItem(key);
-  return data ? JSON.parse(data) : defaultVal;
+  try {
+    const data = localStorage.getItem(key);
+    if (!data) return defaultVal;
+    
+    const parsed = JSON.parse(data);
+    
+    // Basic validation: if array expected but got object, or vice versa, reset
+    if (Array.isArray(defaultVal) && !Array.isArray(parsed)) {
+        console.warn(`Data type mismatch for ${key}. Resetting to default.`);
+        return defaultVal;
+    }
+    
+    return parsed;
+  } catch (error) {
+    console.error(`Error parsing storage key "${key}":`, error);
+    // If it's totally corrupted, don't crash, just return default
+    return defaultVal;
+  }
 };
 
 const setStorage = (key: string, data: any) => {
-  localStorage.setItem(key, JSON.stringify(data));
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (error) {
+    console.error(`Error setting storage key "${key}":`, error);
+  }
 };
 
 const notifyUpdate = () => {
@@ -30,11 +50,9 @@ export const loginUser = (uid: string, password: string): { success: boolean; me
   let user = users.find(u => u.uid === uid);
 
   if (user) {
-    // User exists, verify password
     if (user.password && user.password !== password) {
         return { success: false, message: 'Incorrect Password' };
     }
-    // Legacy user support: if no password set, set it now
     if (!user.password) {
         user.password = password;
         const index = users.findIndex(u => u.uid === uid);
@@ -42,7 +60,6 @@ export const loginUser = (uid: string, password: string): { success: boolean; me
         setStorage(USERS_KEY, users);
     }
   } else {
-    // Register new user
     user = {
       id: Date.now().toString(),
       uid,
@@ -86,7 +103,6 @@ export const claimDailyReward = (uid: string): { success: boolean; message: stri
     return { success: false, message: 'Already claimed today!' };
   }
 
-  // Simple streak logic
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayStr = yesterday.toISOString().split('T')[0];
@@ -97,12 +113,12 @@ export const claimDailyReward = (uid: string): { success: boolean; message: stri
     user.streakDays = 1;
   }
 
-  user.tokens += 1; // Reward
+  user.tokens += 1;
   user.lastClaimDate = today;
   
   users[userIndex] = user;
   setStorage(USERS_KEY, users);
-  notifyUpdate(); // Notify app to refresh balance
+  notifyUpdate();
   
   return { success: true, message: `Claimed! +1 Token. Streak: ${user.streakDays} days`, newStreak: user.streakDays };
 };
@@ -118,23 +134,14 @@ export const createOrder = (order: Omit<Order, 'id' | 'status' | 'date'>): { suc
 
   const user = users[userIndex];
 
-  // Logic: If paying by Wallet, check balance against TOTAL Amount (inc tax)
   if (order.paymentMethod === 'Wallet') {
     if (user.balance < order.amount) {
-      return { success: false, message: 'Insufficient Wallet Balance. Please Add Money.' };
+      return { success: false, message: 'Insufficient Wallet Balance.' };
     }
     user.balance -= order.amount;
     users[userIndex] = user;
     setStorage(USERS_KEY, users);
-    notifyUpdate(); // Notify app to refresh balance
-  } else {
-    // Direct Payment Logic
-    if (!order.trxId) {
-        return { success: false, message: 'Transaction ID is required for direct payment.' };
-    }
-    if (!order.senderNumber && order.paymentMethod !== 'Binance') {
-        return { success: false, message: 'Sender Number is required.' };
-    }
+    notifyUpdate();
   }
 
   const newOrder: Order = {
@@ -144,10 +151,10 @@ export const createOrder = (order: Omit<Order, 'id' | 'status' | 'date'>): { suc
     date: new Date().toISOString(),
   };
 
-  orders.unshift(newOrder); // Add to top
+  orders.unshift(newOrder);
   setStorage(ORDERS_KEY, orders);
   
-  return { success: true, message: 'Order Placed Successfully! Admin will verify.' };
+  return { success: true, message: 'Order Placed Successfully!' };
 };
 
 export const getOrders = (): Order[] => {
@@ -155,8 +162,7 @@ export const getOrders = (): Order[] => {
 };
 
 export const getUserOrders = (uid: string): Order[] => {
-  const orders = getOrders();
-  return orders.filter(o => o.userUid === uid);
+  return getOrders().filter(o => o.userUid === uid);
 };
 
 export const updateOrderStatus = (orderId: string, status: OrderStatus) => {
@@ -168,7 +174,7 @@ export const updateOrderStatus = (orderId: string, status: OrderStatus) => {
   }
 };
 
-// --- Deposits / Wallet ---
+// --- Deposits ---
 
 export const createDepositRequest = (request: Omit<DepositRequest, 'id' | 'status' | 'date'>): { success: boolean; message: string } => {
   const deposits = getStorage<DepositRequest[]>(DEPOSITS_KEY, []);
@@ -180,7 +186,7 @@ export const createDepositRequest = (request: Omit<DepositRequest, 'id' | 'statu
   };
   deposits.unshift(newDeposit);
   setStorage(DEPOSITS_KEY, deposits);
-  return { success: true, message: 'Deposit Request Submitted! Wait for Admin Approval.' };
+  return { success: true, message: 'Deposit Request Submitted!' };
 };
 
 export const getDepositRequests = (): DepositRequest[] => {
@@ -188,8 +194,7 @@ export const getDepositRequests = (): DepositRequest[] => {
 };
 
 export const getUserDeposits = (uid: string): DepositRequest[] => {
-  const deposits = getDepositRequests();
-  return deposits.filter(d => d.userUid === uid);
+  return getDepositRequests().filter(d => d.userUid === uid);
 };
 
 export const updateDepositStatus = (depositId: string, status: DepositStatus) => {
@@ -200,19 +205,16 @@ export const updateDepositStatus = (depositId: string, status: DepositStatus) =>
   
   const deposit = deposits[depositIndex];
 
-  // Logic: If transitioning TO approved, add balance to user
   if (deposit.status === 'pending' && status === 'approved') {
     const users = getStorage<User[]>(USERS_KEY, []);
     const userIndex = users.findIndex(u => u.uid === deposit.userUid);
     if (userIndex !== -1) {
-      // Add balance
       users[userIndex].balance += deposit.amount;
       setStorage(USERS_KEY, users);
-      notifyUpdate(); // Notify app to refresh balance
+      notifyUpdate();
     }
   }
 
-  // Update status
   deposits[depositIndex].status = status;
   setStorage(DEPOSITS_KEY, deposits);
 };

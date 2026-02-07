@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
@@ -16,16 +17,27 @@ import { SUPPORT_PHONE } from './constants';
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [currentHash, setCurrentHash] = useState(window.location.hash);
+  const [currentHash, setCurrentHash] = useState(window.location.hash || '#/');
+  const [isLoading, setIsLoading] = useState(true);
 
   const refreshUser = () => {
-    setUser(getCurrentUser());
+    try {
+        const u = getCurrentUser();
+        setUser(u);
+    } catch (e) {
+        console.error("User load error", e);
+    }
   };
 
   useEffect(() => {
+    if (!window.location.hash) {
+        window.location.hash = '#/';
+        setCurrentHash('#/');
+    }
+
     refreshUser();
+    setIsLoading(false);
     
-    // Listen for global data updates (balance changes, claims, etc)
     const handleDataUpdate = () => {
       refreshUser();
     };
@@ -41,32 +53,38 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // Redirect logic for Login page
     const hash = currentHash.replace(/^#/, '') || '/';
+    
     if (hash === '/login' && user) {
         window.location.hash = '#/profile';
     }
-  }, [currentHash, user]);
+    
+    if ((hash === '/profile' || hash === '/profile/addwallet') && !user && !isLoading) {
+        window.location.hash = '#/login';
+    }
+  }, [currentHash, user, isLoading]);
 
   const getPage = () => {
+    if (isLoading) return <div className="h-screen flex items-center justify-center text-white">Loading...</div>;
+
     const hash = currentHash.replace(/^#/, '') || '/';
     
     if (hash === '/' || hash === '') return <Home />;
-    if (hash === '/login') return user ? null : <Login onLogin={refreshUser} />;
-    if (hash === '/profile') return <Profile />;
-    if (hash === '/profile/addwallet') return <AddWallet />;
+    if (hash === '/login') return <Login onLogin={refreshUser} />;
+    if (hash === '/profile') return user ? <Profile /> : <Login onLogin={refreshUser} />;
+    if (hash === '/profile/addwallet') return user ? <AddWallet /> : <Login onLogin={refreshUser} />;
     if (hash.startsWith('/topup/')) return <TopUp />;
     if (hash === '/recent-orders') return <LiveOrders />;
     if (hash === '/admin') return <Admin />;
     
-    return <Home />; // Fallback
+    return <Home />;
   };
 
   return (
     <div className="min-h-screen flex flex-col bg-gaming-dark text-slate-100 font-sans selection:bg-brand-500 selection:text-white">
         <Navbar user={user} onLogout={() => setUser(null)} />
         
-        <main className="flex-grow relative z-0">
+        <main className="flex-grow relative z-0 pt-16">
           {getPage()}
         </main>
 
@@ -74,7 +92,6 @@ function App() {
         
         <ChatAssistant />
 
-        {/* Floating WhatsApp Button */}
         <a 
           href={`https://wa.me/${SUPPORT_PHONE}`} 
           target="_blank" 

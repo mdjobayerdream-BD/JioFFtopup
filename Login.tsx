@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { loginUser } from '../mockApi';
 import { Gamepad2, ArrowRight, Lock, AlertCircle } from 'lucide-react';
